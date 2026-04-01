@@ -1,0 +1,137 @@
+````markdown
+# CrowdStrike - Detection Rules & Threat Hunting Queries
+
+This repository contains anonymized CrowdStrike Falcon detection rules and threat hunting queries.  
+All sensitive information such as hostnames, domains, and paths has been anonymized for safe public distribution.
+
+---
+
+## 1. Velociraptor Activity Detection  
+Detects interactions with Velociraptor binaries or its Tools directory, commonly used for forensic collection or potentially abused by attackers.
+
+```csl
+ComputerName=* 
+AND TargetFileName="\\Device\\HarddiskVolumeX\\Program Files\\Velociraptor\\Tools\\Velociraptor_Buffer.bin"
+OR FileName="Velociraptor.exe"
+OR FilePath="\\Device\\HarddiskVolumeX\\Program Files\\Velociraptor\\Tools\\"
+| groupBy(@timestamp, ComputerName, UserName, LogonDomain,
+          GrandParentBaseFileName, ParentBaseFileName, FileName,
+          GrandParentImageFilePath, FilePath, TargetFileName,
+          TargetImageFileName, SHA256HashData)
+````
+
+***
+
+## 2. Active Directory Authentication Failure Anomalies
+
+Identifies abnormal authentication failures on sensitive infrastructure.
+
+```csl
+DomainName="*.workers.dev"
+| groupBy([@timestamp, host.hostname, DomainName])
+AnonymizedHost01 OR AnonymizedHost02
+AND #event_simpleName="ActiveDirectoryAuthenticationFailure"
+| groupBy(["@timestamp", "user.name", "DomainName",
+           "ComputerName", "RemoteIP", "SourceEndpointAddressIP4"])
+| sort(count)
+```
+
+***
+
+## 3. DNS Requests to Suspicious Domains
+
+Detects DNS queries to domains associated with malicious activity.
+
+```csl
+DomainName="example-malicious1.com"
+OR DomainName="example-malicious2.top"
+| groupBy(["ComputerName", "#event_simpleName", "@timestamp",
+           "DnsRequestCount", "ContextBaseFileName", "DomainName",
+           "FirstIP4Record"])
+| sort(count)
+```
+
+***
+
+## 4. Suspicious Downloads via curl
+
+Detects curl usage or requests to suspicious domains.
+
+```csl
+#event_simpleName=ProcessRollup2
+| CommandLine=/maliciousdomain\.com/i
+OR CommandLine=/curl/i
+| groupBy(["ComputerName","UserName","ImageFileName",
+           "CommandLine","ParentBaseFileName"])
+| sort(count)
+```
+
+***
+
+## 5. Attack Chain: cmd → curl → mshta
+
+Detects the typical download-and-execute sequence using curl and mshta.
+
+```csl
+#event_simpleName=ProcessRollup2
+| CommandLine=/maliciousdomain\.com/i
+OR CommandLine=/curl/i
+OR CommandLine=/mshta/i
+| groupBy(["ComputerName","UserName","ImageFileName",
+           "ParentBaseFileName","CommandLine"])
+| sort(count)
+```
+
+***
+
+## 6. Obfuscated mshta Pattern Detection
+
+Identifies the obfuscated usage of mshta often used to evade simple detection rules.
+
+```csl
+#event_simpleName=ProcessRollup2
+| CommandLine=/\^?m\^?s\^?h\^?t\^?a/i
+OR CommandLine=/curl/i
+OR CommandLine=/maliciousdomain\.com/i
+| groupBy(["ComputerName","UserName","ImageFileName",
+           "ParentBaseFileName","CommandLine"])
+| sort(count)
+```
+
+***
+
+## 7. Behavioral Correlation: curl / mshta / domain
+
+Correlates multiple suspicious commands to strengthen detection confidence.
+
+```csl
+#event_simpleName=ProcessRollup2
+| CommandLine=/curl|mshta|maliciousdomain\.com/i
+| groupBy(["ComputerName","UserName","ImageFileName",
+           "ParentBaseFileName","CommandLine"], function=count())
+| sort(count, order=desc)
+```
+
+***
+
+## 8. Filtering Out Legitimate Scripts
+
+Removes common legitimate DevOps or system updater activities from detection results.
+
+```csl
+#event_simpleName=ProcessRollup2
+| ImageFileName=/curl\.exe|mshta\.exe/i
+| CommandLine=/http|\.hta|maliciousdomain\.com/i
+| ParentBaseFileName=/cmd\.exe|powershell\.exe/i
+| groupBy(["ComputerName","UserName","ImageFileName",
+           "ParentBaseFileName","CommandLine"], function=count())
+| sort(count, order=desc)
+```
+
+***
+
+## License
+
+This repository contains anonymized SOC detection rules and is safe for public distribution.
+
+```
