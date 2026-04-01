@@ -130,6 +130,215 @@ Removes common legitimate DevOps or system updater activities from detection res
 
 ***
 
+***
+
+Parfait.  
+Voici **un fichier Markdown complet**, **organisé proprement**, **sans données sensibles**, **avec contexte court** et **queries CrowdStrike intactes**.  
+Tu peux directement l’utiliser comme `README.md` dans un dépôt GitHub.
+
+***
+
+# CrowdStrike Threat Hunting Queries
+
+Anonymized & Documented – DNS, Network, Node.js, AI Queries  
+Version Markdown – Optimisé pour GitHub
+
+***
+
+## Table des matières
+
+1.  \#dns-threat-hunting
+    *   AI queries
+    *   TLD suspects
+    *   Yandex
+2.  \#network-threat-hunting
+    *   IP spécifique
+    *   Ensemble d’IP
+    *   Pays hors Canada
+3.  \#nodejs--crowdstrike-sdk
+    *   Trufflehog
+    *   CrowdStrike JS files
+    *   Node.js execution
+4.  \#annexes
+
+***
+
+# DNS Threat Hunting
+
+## 1. DNS Query – Usage potentiel d’IA (ChatGPT)
+
+**Contexte :**  
+Détecte des requêtes DNS peu fréquentes vers ChatGPT, ce qui peut indiquer un usage inhabituel d’outils d’IA non approuvés.
+
+```csl
+#event_simpleName=DnsRequest
+| aid=* AND DomainName=/chatgpt/i
+| groupBy([aid, DomainName, ComputerName, UserName], limit=max)
+| _count < 3
+| sort(_count)
+```
+
+***
+
+## 2. DNS AI Queries – Multi-services IA
+
+**Contexte :**  
+Repère des requêtes vers plusieurs services d’IA générative (OpenAI, Claude, Gemini, HuggingFace, Perplexity…).  
+Intéressant pour la détection de shadow‑IT ou d’outils d’IA non autorisés.
+
+```csl
+#event_simpleName=DnsRequest
+| aid=* AND DomainName=/chatgpt|openai|bard|claude|perplexity|huggingface|llm|anthropic|ai|gemini|you\.com/i
+| groupBy([aid, DomainName, ComputerName, UserName], limit=max)
+| _count < 3
+| sort(_count)
+```
+
+***
+
+## 3. TLD suspects
+
+**Contexte :**  
+Détecte des requêtes DNS vers des domaines utilisant des TLD fréquemment associés à des campagnes malveillantes (.ru, .cn, .xyz, .top…).  
+Les événements rares (\_count < 3) sont souvent les plus intéressants.
+
+```csl
+#event_simpleName=DnsRequest
+| aid=* AND DomainName=/[a-z0-9\-]+\.(?:cn|ru|xyz|top|tk|info|biz|club|cc|pw|work|click|support)$/i
+| groupBy([aid, DomainName, ComputerName, UserName], limit=max)
+| _count < 3
+| sort(_count)
+```
+
+***
+
+## 4. DNS Yandex Query
+
+**Contexte :**  
+Détection de requêtes vers Yandex, souvent utilisé dans des mécaniques d’exfiltration ou redirections.
+
+```csl
+#event_simpleName=DnsRequest
+| aid=* AND DomainName=/yandex/i
+| groupBy([aid, DomainName, ComputerName, UserName], limit=max)
+| _count < 3
+| sort(_count)
+```
+
+***
+
+# Network Threat Hunting
+
+## 5. Connexions réseau vers une IP spécifique
+
+**Contexte :**  
+Analyse de processus ou exécutables connectant à une adresse IP externe précise (potentiellement C2 ou hôte suspect).  
+IP anonymisée volontairement pour GitHub.
+
+```csl
+#event_simpleName="NetworkConnectIP4" AND RemoteAddressIP4="X.X.X.X"
+| groupBy(ComputerName, GrandParentBaseFileName, ParentBaseFileName,
+          ContextBaseFileName, CommandLine, RemoteAddressIP4,
+          ProcessGroupId, ParentProcessId, RemotePort)
+```
+
+***
+
+## 6. Connexions réseau vers plusieurs IP sensibles
+
+**Contexte :**  
+Utilisé pour traquer des connexions vers des pools d’IP identifiées comme dangereuses (C2 / malwares / exfiltration).  
+Hostname anonymisé.
+
+```csl
+(
+  RemoteAddressIP4="X.X.X.X" OR
+  RemoteAddressIP4="X.X.X.X" OR
+  RemoteAddressIP4="X.X.X.X"
+)
+AND (
+  #event_simpleName=NetworkCloseIP4 OR
+  #event_simpleName=NetworkConnectIP4
+)
+AND ComputerName="HOSTNAME_ANON"
+AND ContextBaseFileName=*
+| groupBy(RemoteAddressIP4, ContextBaseFileName, TargetFileName, ComputerName)
+```
+
+***
+
+## 7. Connexions SSO depuis l’étranger
+
+**Contexte :**  
+Filtre les authentifications SSO provenant de pays autres que le Canada (CA).  
+Très utile en détection de compromission de compte (MFA bypass / Credential Stuffing).
+
+```csl
+"#event_simpleName" = SsoApplicationAccess
+| !cidr(SourceEndpointAddressIP4, subnet=["224.0.0.0/4", "10.0.0.0/8",
+   "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8",
+   "169.254.0.0/16", "0.0.0.0/32"])
+| LocationCountryCode
+| LocationCountryCode != "CA"
+| groupBy([LocationCountryCode, SourceAccountUserName,
+           SourceEndpointAddressIP4, SsoApplicationIdentifier, @timestamp])
+```
+
+***
+
+# Node.js & CrowdStrike SDK
+
+## 8. Recherche de processus Trufflehog & CrowdStrike Node Modules
+
+**Contexte :**  
+Trufflehog est un outil permettant d’extraire des secrets — sa présence peut indiquer une fuite potentielle ou un audit non approuvé.  
+Détection également du SDK Node.js CrowdStrike.
+
+```csl
+process_name : "*trufflehog*" OR process_command_line : "*trufflehog*"
+file_path : "*node_modules/@crowdstrike/*"
+```
+
+***
+
+## 9. Détection de fichiers CrowdStrike bundle.js (hash connus)
+
+**Contexte :**  
+Permet d’identifier des versions spécifiques du SDK CrowdStrike pour Node.js, utile pour vérifier intégrité et provenance.
+
+```csl
+file_name = "bundle.js"
+AND file_sha256 = "46faab8ab153fae6e80e7cca38eab363075bb524edd79e42269217a083628f09"
+
+file_sha256 = "81d2a004a1bca6ef87a1caf7d0e0b355ad1764238e40ff6d1b1cb77ad4f595c3"
+
+file_sha256 = "dc67467a39b70d1cd4c1f7f7a459b35058163592f4a9e8fb4dffcbba98ef210c"
+```
+
+***
+
+## 10. Node.js Process Execution
+
+**Contexte :**  
+Détection des exécutions de `node` ou `node.exe` — particulièrement utile lorsque des scripts Node sont utilisés pour exécuter du code arbitraire, lancer des shells ou manipuler des fichiers sensibles.
+
+### Node.js dans `node_modules`
+
+```csl
+#event_platform=Win OR #event_platform=Lin
+| process_name : ("node" OR "node.exe")
+| process_path : "*node_modules*"
+```
+
+### Node.js générique
+
+```csl
+#event_platform=Win OR #event_platform=Lin
+| process_name : ("node" OR "node.exe")
+```
+
+***
+
 ## License
 
 This repository contains anonymized SOC detection rules and is safe for public distribution.
