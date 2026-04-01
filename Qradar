@@ -23,7 +23,7 @@ Below is the cleaned and formatted list of all included QRadar searches.
 
 ---
 
-### 1. Air Inuit - Add Member to Azure Sensitive Group  
+### 1. XXXX - Add Member to Azure Sensitive Group  
 **Category:** User Privilege Change  
 **RuleID:** 158048  
 **Description:** Add member to sensitive Azure AD group
