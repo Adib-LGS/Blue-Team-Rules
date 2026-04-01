@@ -1,0 +1,425 @@
+# README.md (QRadar Queries Documentation)
+ 
+This repository contains a curated collection of QRadar AQL searches, anonymized and structured for documentation and reuse.  
+All queries are intended to run directly within QRadar's "Search in Offense" context using the `INOFFENSE(#id#)` placeholder.
+
+---
+
+## Format
+Each entry contains:
+- **Rule Name**  
+- **Category**  
+- **Search Description**  
+- **Rule IDs**  
+- **AQL Query**
+
+---
+
+## Query List
+
+Below is the cleaned and formatted list of all included QRadar searches.
+
+---
+
+### 1. XXXX - Add Member to Azure Sensitive Group  
+**Category:** User Privilege Change  
+**RuleID:** 158048  
+**Description:** Add member to sensitive Azure AD group
+
+```aql
+SELECT QIDNAME(qid) AS 'Event Name',
+       logsourcename(logSourceId) AS 'Log Source',
+       DATEFORMAT(startTime,'yyyy-MM-dd hh:mm a') AS 'Start Time',
+       "Username" AS 'Initiating User',
+       "Target Username" AS 'Target User',
+       "Group Name" AS 'Group Name'
+FROM events
+WHERE INOFFENSE(#id#)
+  AND logSourceId NOT IN (113, 63)
+ORDER BY startTime DESC
+LIMIT 1000
+START '#start.time#' STOP '#last_persisted_time#';
+````
+
+***
+
+### 2. Avanan Email Threat Detected – Alert Only
+
+**Category:** Email Security  
+**RuleID:** 158025  
+**Description:** Avanan detected an email threat (alert only)
+
+```aql
+SELECT "sourceIP" AS 'Source IP',
+       LOGSOURCENAME(logsourceid) AS 'Log Source',
+       QIDNAME(qid) AS 'Event Name',
+       "Username",
+       "Action",
+       "Email Recipients",
+       "Email Sender",
+       "Event Type",
+       "Product",
+       "Subject",
+       "Verdict",
+       UTF8(payload) AS 'Payload',
+       MIN(DATEFORMAT(devicetime,'yyyy-MMM-dd hh:mm a')) AS 'First Seen',
+       MAX(DATEFORMAT(devicetime,'yyyy-MMM-dd hh:mm a')) AS 'Last Seen',
+       COUNT(*) AS 'Event Count'
+FROM events
+WHERE INOFFENSE(#id#)
+  AND logSourceId NOT IN (113, 63)
+GROUP BY qid, logsourceid, "sourceIP", "Username", "Action",
+         "Email Recipients", "Email Sender", "Event Type", "Product",
+         "Subject", "Verdict", UTF8(payload)
+ORDER BY COUNT(*) DESC
+LIMIT 100
+START '#start.time#' STOP '#last_persisted_time#';
+```
+
+***
+
+### 3. Azure MFA Disabled for a User
+
+**Category:** Authentication  
+**RuleID:** 158008  
+**Description:** Detection of Azure MFA being disabled
+
+```aql
+SELECT "sourceIP" AS 'Source IP',
+       LOGSOURCENAME(logsourceid) AS 'Log Source',
+       QIDNAME(qid) AS 'Event Name',
+       "Username" AS 'Initiating User',
+       "Target Username" AS 'Target User',
+       "Device Name",
+       UTF8(payload) AS 'Payload',
+       MIN(DATEFORMAT(devicetime,'yyyy-MMM-dd hh:mm a')) AS 'First Seen',
+       MAX(DATEFORMAT(devicetime,'yyyy-MMM-dd hh:mm a')) AS 'Last Seen',
+       COUNT(*) AS 'Event Count'
+FROM events
+WHERE INOFFENSE(#id#)
+  AND logSourceId NOT IN (113, 63)
+GROUP BY qid, logsourceid, "sourceIP", "Username",
+         "Target Username", "Device Name", UTF8(payload)
+ORDER BY COUNT(*) DESC
+LIMIT 100
+START '#start.time#' STOP '#last_persisted_time#';
+```
+
+***
+
+### 4. Conditional Access Policy Changes
+
+**Category:** Policy Management  
+**RuleID:** 158010  
+**Description:** Azure Conditional Access policy creation/modification/deletion
+
+```aql
+SELECT "sourceIP" AS 'Source IP',
+       LOGSOURCENAME(logsourceid) AS 'Log Source',
+       QIDNAME(qid) AS 'Event Name',
+       "Username",
+       UTF8(payload) AS 'Payload',
+       MIN(DATEFORMAT(devicetime,'yyyy-MMM-dd hh:mm a')) AS 'First Seen',
+       MAX(DATEFORMAT(devicetime,'yyyy-MMM-dd hh:mm a')) AS 'Last Seen',
+       COUNT(*) AS 'Event Count'
+FROM events
+WHERE INOFFENSE(#id#)
+  AND logSourceId NOT IN (113, 63)
+GROUP BY qid, logsourceid, "sourceIP", "Username", UTF8(payload)
+ORDER BY COUNT(*) DESC
+LIMIT 100
+START '#start.time#' STOP '#last_persisted_time#';
+```
+
+***
+
+### 5. Azure Multiple Password Reset Activity
+
+**Category:** Authentication  
+**RuleID:** 158011  
+**Description:** Detection of multiple password reset operations
+
+```aql
+SELECT LOGSOURCENAME(logsourceid) AS 'Log Source',
+       QIDNAME(qid) AS 'Event Name',
+       "Username" AS 'Initiating User',
+       "Target Username",
+       UTF8(payload) AS 'Payload',
+       MIN(DATEFORMAT(devicetime,'yyyy-MMM-dd hh:mm a')) AS 'First Seen',
+       MAX(DATEFORMAT(devicetime,'yyyy-MMM-dd hh:mm a')) AS 'Last Seen',
+       COUNT(*) AS 'Event Count'
+FROM events
+WHERE INOFFENSE(#id#)
+  AND logSourceId NOT IN (113, 63)
+GROUP BY qid, logsourceid, "Username", "Target Username", UTF8(payload)
+ORDER BY COUNT(*) DESC
+LIMIT 100
+START '#start.time#' STOP '#last_persisted_time#';
+```
+
+***
+
+### (...)
+***
+
+
+# QRadar Threat Hunting Queries
+
+***
+
+# Table of Contents
+
+*   \#excessive-login-failures
+*   \#hybrid-cloud-login-failures--success
+*   \#x-force-threat-intelligence-queries
+*   \#url--dns--malware-queries
+*   \#anonymisation-notes
+
+***
+
+# Excessive Login Failures
+
+## Excessive Login Failures via Network Connection
+
+**Rule ID:** 151889  
+**Context:**  
+Identifie des tentatives de connexion échouées/nombreuses via le réseau, corrélées à des Event IDs 4625 (échec) et 4624 (succès).
+
+### Version ciblée (Event IDs 4625 + 4624)
+
+```aql
+SELECT QIDNAME(qid) AS 'Event Name',
+       "sourceIP" AS 'Source IP',
+       sourceport AS 'Source Port',
+       "destinationIP" AS 'Destination IP',
+       destinationport AS 'Destination Port',
+       LOGSOURCENAME(logsourceid) AS 'Log Source',
+       "Username" AS 'Username',
+       "Authentication Package" AS 'Auth Package',
+       "Error Code" AS 'Error Code',
+       "Event ID" AS 'Event ID',
+       "Extended Error Code" AS 'Ext Error Code',
+       "Logon Account Domain" AS 'Domain',
+       "Logon Account Name" AS 'Account Name',
+       MIN(DATEFORMAT(devicetime, 'yyyy-MMM-dd hh:mm a')) AS 'First Seen',
+       MAX(DATEFORMAT(devicetime, 'yyyy-MMM-dd hh:mm a')) AS 'Last Seen',
+       COUNT(*) AS 'Count'
+FROM events
+WHERE INOFFENSE(#id#)
+  AND "Event ID" IN ('4625', '4624')
+  AND logSourceId NOT IN (113, 63)
+GROUP BY "Username", "sourceIP", "destinationIP", "Event ID",
+         "Error Code", "Authentication Package"
+ORDER BY "Count" DESC
+LAST 24 HOURS
+```
+
+### Version large (tout type d’Event ID)
+
+```aql
+SELECT QIDNAME(qid) AS 'Event Name',
+       "sourceIP" AS 'Source IP',
+       sourceport AS 'Source Port',
+       "destinationIP" AS 'Destination IP',
+       destinationport AS 'Destination Port',
+       LOGSOURCENAME(logsourceid) AS 'Log Source',
+       "Username" AS 'Username',
+       "Authentication Package" AS 'Auth Package',
+       "Error Code" AS 'Error Code',
+       "Event ID" AS 'Event ID',
+       "Extended Error Code" AS 'Ext Error Code',
+       "Logon Account Domain" AS 'Domain',
+       "Logon Account Name" AS 'Account Name',
+       MIN(DATEFORMAT(devicetime, 'yyyy-MMM-dd hh:mm a')) AS 'First Seen',
+       MAX(DATEFORMAT(devicetime, 'yyyy-MMM-dd hh:mm a')) AS 'Last Seen',
+       COUNT(*) AS 'Count'
+FROM events
+WHERE INOFFENSE(#id#)
+  AND logSourceId NOT IN (113, 63)
+GROUP BY "Username", "sourceIP", "destinationIP", "Event ID",
+         "Error Code", "Authentication Package"
+ORDER BY "Count" DESC
+LAST 24 HOURS
+```
+
+***
+
+# Hybrid Cloud Login Failures → Success
+
+## Multiple Failures Followed by Success
+
+**Rule ID:** 156900  
+**Context:**  
+Détection typique de brute-force Cloud : plusieurs échecs → succès soudain avec même source.
+
+```aql
+SELECT "Device Name" AS 'Device',
+       "sourceIP" AS 'Source IP',
+       "Username" AS 'Username',
+       "identity" AS 'Azure Identity',
+       "Caller IP" AS 'Caller IP',
+       "location" AS 'Location',
+       "Operation Name" AS 'Operation',
+       "Error Code" AS 'Error Code',
+       "Event ID" AS 'Event ID',
+       "MFA Used" AS 'MFA Detail',
+       LOGSOURCENAME(logsourceid) AS 'Log Source',
+       QIDNAME(qid) AS 'Event Name',
+       MIN(DATEFORMAT(devicetime, 'yyyy-MMM-dd hh:mm a')) AS 'First Seen',
+       MAX(DATEFORMAT(devicetime, 'yyyy-MMM-dd hh:mm a')) AS 'Last Seen',
+       COUNT(*) AS 'Count'
+FROM events
+WHERE INOFFENSE(#id#)
+  AND logSourceId NOT IN (113, 63)
+GROUP BY "Username", "sourceIP", "Caller IP", "identity",
+         "Device Name", "Operation Name"
+ORDER BY "Last Seen" DESC
+LAST 24 HOURS
+```
+
+***
+
+# X-Force Threat Intelligence Queries
+
+## URL flagged as Malware
+
+**Context:**  
+Détection de URLs classées "Malware" par IBM X‑Force.
+
+```aql
+SELECT url,
+       XFORCE_URL_CATEGORY(url) AS 'Category',
+       QIDNAME(qid) AS 'Event Name',
+       LOGSOURCENAME(logsourceid) AS 'Log Source Name',
+       MIN(DATEFORMAT(devicetime, 'yyyy-MMM-dd hh:mm a')) AS 'First Seen',
+       MIN(DATEFORMAT(starttime, 'yyyy-MMM-dd hh:mm a')) AS 'Start Time'
+FROM events
+WHERE INOFFENSE(#id#)
+  AND logSourceId NOT IN (113, 63)
+  AND XFORCE_URL_CATEGORY(url) = 'Malware'
+GROUP BY url
+LAST 24 HOURS
+```
+
+***
+
+## X-Force: Source/Destination IP Summary
+
+**Context:**  
+Analyse des IP uniques impliquées dans des événements classés malveillants.
+
+```aql
+SELECT SET("sourceIP", "destinationIP") AS 'Source or Destination IP',
+       QIDNAME(qid) AS 'Event Name',
+       Category AS 'Low Level Category',
+       "sourceIP" AS 'Source IP',
+       "destinationIP" AS 'Destination IP',
+       LOGSOURCENAME(logsourceid) AS 'Log Source Name',
+       MIN(DATEFORMAT(devicetime, 'yyyy-MMM-dd hh:mm a')) AS 'First Seen',
+       MIN(DATEFORMAT(starttime, 'yyyy-MMM-dd hh:mm a')) AS 'Start Time',
+       "userName" AS 'Username',
+       SUM("eventCount") AS 'Event Count (Sum)',
+       COUNT(*) AS 'Count'
+FROM events
+WHERE INOFFENSE(#id#)
+  AND logSourceId NOT IN (113, 63)
+GROUP BY SET("sourceIP", "destinationIP")
+ORDER BY "Count"
+LAST 24 HOURS
+```
+
+***
+
+# URL / DNS / Malware Queries
+
+## URL Events
+
+**Context:**  
+Analyse des événements contenant des URLs (firewall, proxy).
+
+```aql
+SELECT "Hostname" AS 'Device',
+       "URL" AS 'Link',
+       "Service Name" AS 'Method',
+       "Action" AS 'Firewall Decision',
+       QIDNAME(qid) AS 'Event Name',
+       LOGSOURCENAME(logsourceid) AS 'Log Source Name',
+       MIN(DATEFORMAT(devicetime,'yyyy-MMM-dd hh:mm a')) AS 'First Seen',
+       MIN(DATEFORMAT(starttime,'yyyy-MMM-dd hh:mm a')) AS 'Start Time'
+FROM events
+WHERE INOFFENSE(#id#)
+  AND logSourceId NOT IN (113, 63)
+  AND "URL" IS NOT NULL
+GROUP BY "Hostname","URL","Service Name","Action",qid,logsourceid
+ORDER BY "Hostname"
+LAST 7 HOURS
+```
+
+***
+
+## DNS Analysis
+
+**Context:**  
+DNS hostnames suspects associés à une offense.
+
+```aql
+SELECT "URL Host" AS 'URL Host',
+       "DNS Request Type" AS 'Request Type',
+       "Error Code" AS 'DNS Code',
+       "Subtype" AS 'DNS Actions',
+       QIDNAME(qid) AS 'Event Name',
+       LOGSOURCENAME(logsourceid) AS 'Log Source Name',
+       MIN(DATEFORMAT(devicetime,'yyyy-MMM-dd hh:mm a')) AS 'First Seen',
+       MIN(DATEFORMAT(starttime,'yyyy-MMM-dd hh:mm a')) AS 'Start Time'
+FROM events
+WHERE INOFFENSE(#id#)
+  AND logSourceId NOT IN (113, 63)
+  AND "URL Host" IS NOT NULL
+GROUP BY "URL Host", "DNS Request Type", "Error Code", "Subtype", qid, logsourceid
+ORDER BY "URL Host"
+LAST 7 HOURS
+```
+
+***
+
+## Malware Summary
+
+**Context:**  
+Résumé global (IP, catégories, comptes) d’une activité malware.
+
+```aql
+SELECT SET("sourceIP", "destinationIP") AS 'Source or Destination IP',
+       UniqueCount(qid) AS 'Event Name (Unique Count)',
+       UniqueCount(category) AS 'Low Level Category (Unique Count)',
+       UniqueCount(logSourceId) AS 'Log Source (Unique Count)',
+       UniqueCount("sourceIP") AS 'Source IP (Unique Count)',
+       UniqueCount("destinationIP") AS 'Destination IP (Unique Count)',
+       UniqueCount("userName") AS 'Username (Unique Count)',
+       SUM("eventCount") AS 'Event Count (Sum)',
+       COUNT(*) AS 'Count'
+FROM events
+WHERE INOFFENSE(#id#)
+  AND logSourceId NOT IN (113, 63)
+GROUP BY SET("sourceIP", "destinationIP")
+ORDER BY "Count"
+LAST 24 HOURS
+```
+
+***
+
+# Anonymisation Notes
+
+*   **Tous les numéros d’offense remplacés par `INOFFENSE(#id#)`**
+*   **Aucun hostname, IP, user réel** n’est présent
+*   Les requêtes AQL sont **préservées**
+*   Structure adaptée pour GitHub (sections claires, contexte, code blocks)
+
+
+
+## Notes
+
+*   All queries keep original logic and only format/presentation has been standardized.
+*   No customer-identifying information is included.
+*   This document is suitable for public GitHub repositories.
+
+***
