@@ -1,0 +1,19 @@
+Entra ID Role Privilege Escalation
+ 
+AuditLogs
+| where LoggedByService == "Core Directory"
+| where OperationName in ("Add member to role", "Add eligible member to role", "Add member to role outside of PIM")
+| extend TargetUser = tostring(TargetResources[0].userPrincipalName)
+| mv-apply Property = TargetResources[0].modifiedProperties on (
+    where Property.displayName == "Role.DisplayName"
+    | extend RoleName = tostring(Property.newValue)
+)
+| extend InitiatedBy = iif(isnotempty(InitiatedBy.user.userPrincipalName), tostring(InitiatedBy.user.userPrincipalName), tostring(InitiatedBy.app.displayName))
+| where RoleName has_any (
+     "Global Administrator", "AI Administrator", "Application Administrator", "Authentication Administrator",
+     "Cloud Application Administrator", "Cloud Device Administrator", "Conditional Access Administrator",
+     "Helpdesk Administrator", "Hybrid Identity Administrator", "Intune Administrator", "Password Administrator",
+     "Privileged Authentication Administrator", "Privileged Role Administrator", "Security Administrator",
+     "Security Operator", "User Administrator"
+)
+| project TimeGenerated, OperationName, RoleName, TargetUser, InitiatedBy, Result, AADTenantId
