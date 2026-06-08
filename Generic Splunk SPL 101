@@ -1,0 +1,436 @@
+**détections génériques Splunk** qui fonctionneront peu importe la source :
+
+* CrowdStrike
+* Microsoft Defender
+* Sysmon
+* Windows Event Logs
+* QRadar
+* FortiSIEM
+* Sentinel
+* Carbon Black
+* Palo Alto Cortex
+* Elastic
+
+---
+
+# 1. Rare Domain Access
+
+## Cas couverts
+
+* ChatGPT
+* Gemini
+* Claude
+* Yandex
+* Domaines suspects
+* Domaines malveillants
+
+## SPL générique
+
+```spl
+index=*
+(domain=* OR query=* OR dns_query=* OR DomainName=*)
+| stats count by host user domain
+| where count < 3
+```
+
+---
+
+# 2. Suspicious TLD Hunting
+
+## Cas couverts
+
+* .top
+* .xyz
+* .ru
+* .cn
+* .tk
+* .club
+
+## SPL
+
+```spl
+index=*
+(domain=* OR query=* OR dns_query=*)
+| regex domain=".*\.(ru|cn|xyz|top|tk|club|pw|click)$"
+```
+
+MITRE :
+
+```text
+T1071.004
+```
+
+DNS C2.
+
+---
+
+# 3. Rare External Network Connection
+
+## Cas couverts
+
+* C2
+* Malware
+* Beaconing
+
+## SPL
+
+```spl
+index=*
+dest_ip=*
+| stats count by host dest_ip process_name
+| where count < 5
+```
+
+---
+
+# 4. Process Downloads Content
+
+## Cas couverts
+
+* curl
+* wget
+* bitsadmin
+* certutil
+
+## SPL
+
+```spl
+index=*
+(process_name=curl.exe
+OR process_name=wget.exe
+OR process_name=bitsadmin.exe
+OR process_name=certutil.exe)
+```
+
+---
+
+# 5. LOLBIN Execution
+
+## Cas couverts
+
+* mshta
+* rundll32
+* regsvr32
+* installutil
+* certutil
+
+## SPL
+
+```spl
+index=*
+process_name IN
+(
+mshta.exe,
+rundll32.exe,
+regsvr32.exe,
+installutil.exe,
+certutil.exe
+)
+```
+
+---
+
+# 6. Obfuscated Command Detection
+
+## Cas couverts
+
+* mshta obfusqué
+* powershell obfusqué
+* cmd obfusqué
+
+## SPL
+
+```spl
+index=*
+| regex command_line=".*(\^|\`|%|\$|\+){3,}.*"
+```
+
+---
+
+# 7. Base64 Detection
+
+## Cas couverts
+
+* PowerShell EncodedCommand
+* Malware loaders
+
+## SPL
+
+```spl
+index=*
+| regex command_line=".*[A-Za-z0-9+/]{40,}={0,2}.*"
+```
+
+---
+
+# 8. Office Spawn Child Process
+
+## Cas couverts
+
+* Word Macro
+* Excel Macro
+* Phishing
+
+## SPL
+
+```spl
+index=*
+parent_process_name IN
+(
+winword.exe,
+excel.exe,
+outlook.exe
+)
+```
+
+---
+
+# 9. Office → PowerShell
+
+## SPL
+
+```spl
+index=*
+parent_process_name IN
+(
+winword.exe,
+excel.exe,
+outlook.exe
+)
+process_name=powershell.exe
+```
+
+---
+
+# 10. Office → LOLBIN
+
+## SPL
+
+```spl
+index=*
+parent_process_name IN
+(
+winword.exe,
+excel.exe
+)
+process_name IN
+(
+mshta.exe,
+rundll32.exe,
+regsvr32.exe,
+certutil.exe
+)
+```
+
+---
+
+# 11. Download → Execute Chain
+
+Inspiré directement du pattern :
+
+```text
+cmd
+ ↓
+curl
+ ↓
+mshta
+```
+
+## SPL
+
+```spl
+index=*
+| transaction host maxspan=5m
+| search process_name IN
+(
+cmd.exe,
+powershell.exe,
+curl.exe,
+mshta.exe
+)
+```
+
+---
+
+# 12. Authentication Failure Spike
+
+## Cas couverts
+
+* AD Failure
+* Azure Failure
+* Entra Failure
+
+## SPL
+
+```spl
+index=*
+action=failure
+| stats count by user src_ip
+| where count > 10
+```
+
+---
+
+# 13. Password Spray
+
+## SPL
+
+```spl
+index=*
+action=failure
+| stats dc(user) as users by src_ip
+| where users > 10
+```
+
+---
+
+# 14. Brute Force Success
+
+## Cas couverts
+
+* QRadar
+* Azure
+* Entra
+
+## SPL
+
+```spl
+index=*
+(action=failure OR action=success)
+| transaction user src_ip maxspan=15m
+```
+
+Version plus robuste :
+
+```spl
+index=*
+| stats
+count(eval(action="failure")) as failures
+count(eval(action="success")) as success
+by user src_ip
+| where failures > 5 AND success > 0
+```
+
+---
+
+# 15. Privileged Role Assignment
+
+## Cas couverts
+
+* Entra ID
+* Azure AD
+* IAM
+
+## SPL
+
+```spl
+index=*
+(
+OperationName="Add member to role"
+OR OperationName="Add eligible member to role"
+)
+```
+
+---
+
+# 16. MFA Disabled
+
+## Cas couverts
+
+* Azure MFA
+* Entra MFA
+* Okta MFA
+
+## SPL
+
+```spl
+index=*
+(
+OperationName="Disable MFA"
+OR OperationName="MFA Disabled"
+OR action="mfa_disabled"
+)
+```
+
+---
+
+# 17. Conditional Access Changes
+
+## Cas couverts
+
+* Azure CA
+* Entra CA
+* IAM Policies
+
+## SPL
+
+```spl
+index=*
+(
+OperationName="Update Conditional Access Policy"
+OR OperationName="Delete Conditional Access Policy"
+OR OperationName="Create Conditional Access Policy"
+)
+```
+
+---
+
+# 18. Multiple Password Resets
+
+## SPL
+
+```spl
+index=*
+action=password_reset
+| stats count by initiated_by
+| where count > 5
+```
+
+---
+
+# 19. Rare Process Execution
+
+## Cas couverts
+
+* Trufflehog
+* Velociraptor
+* Node
+* Outils offensifs
+
+## SPL
+
+```spl
+index=*
+| stats count by process_name
+| where count < 5
+```
+
+---
+
+# 20. Security Tool Execution
+
+## Cas couverts
+
+* Velociraptor
+* Trufflehog
+* BloodHound
+* SharpHound
+* Mimikatz
+* Rubeus
+
+## SPL
+
+```spl
+index=*
+process_name IN
+(
+Velociraptor.exe,
+trufflehog.exe,
+SharpHound.exe,
+BloodHound.exe,
+mimikatz.exe,
+Rubeus.exe
+)
+```
+
+---
