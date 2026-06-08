@@ -1,0 +1,656 @@
+Splunk Basic SOC:
+
+# Phase 1 - Comprendre l'architecture Splunk
+
+### Universal Forwarder (UF)
+
+Agent léger installé sur :
+
+* Windows
+* Linux
+* Serveurs
+* Workstations
+
+Rôle :
+
+```text
+Collecter les logs
+↓
+Envoyer à Splunk
+```
+
+Ne stocke presque rien.
+
+---
+
+### Heavy Forwarder (HF)
+
+Version plus avancée.
+
+Permet :
+
+* Parsing
+* Filtrage
+* Routage
+* Transformation
+
+Exemple :
+
+```text
+Firewall Logs
+↓
+Heavy Forwarder
+↓
+Indexer
+```
+
+---
+
+### Indexer
+
+Le composant le plus important.
+
+Il :
+
+* reçoit les événements
+* compresse
+* indexe
+* stocke
+
+Quand tu fais :
+
+```spl
+index=windows
+```
+
+Tu interroges directement les indexers.
+
+---
+
+### Search Head
+
+Interface utilisée par les analystes.
+
+Tu tapes :
+
+```spl
+index=windows EventCode=4625
+```
+
+Le Search Head :
+
+```text
+Search Head
+↓
+Indexer 1
+Indexer 2
+Indexer 3
+↓
+Résultat
+```
+
+---
+
+### Cluster Master
+
+Gère :
+
+* réplication
+* santé du cluster
+* disponibilité
+
+---
+
+# Le pipeline d'ingestion
+
+Chaque log suit ce parcours :
+
+```text
+Source
+↓
+Input
+↓
+Parsing
+↓
+Indexing
+↓
+Searching
+```
+
+Exemple :
+
+```text
+Windows Event
+↓
+Universal Forwarder
+↓
+Indexer
+↓
+Index=windows
+```
+
+---
+
+# Les 4 champs les plus importants
+
+Chaque événement possède :
+
+## host
+
+```spl
+host=SERVER01
+```
+
+Machine source.
+
+---
+
+## source
+
+```spl
+source=WinEventLog:Security
+```
+
+Origine exacte.
+
+---
+
+## sourcetype
+
+```spl
+sourcetype=XmlWinEventLog
+```
+
+Type de données.
+
+Très important.
+
+---
+
+## index
+
+```spl
+index=windows
+```
+
+Emplacement de stockage.
+
+---
+
+# Ce qu'un analyste SOC utilise réellement
+
+90% des investigations utilisent :
+
+```spl
+index
+sourcetype
+host
+user
+src_ip
+dest_ip
+process_name
+parent_process
+command_line
+```
+
+---
+
+# Les 50 requêtes SPL SOC à maîtriser
+
+## 1. Tous les échecs d'authentification
+
+```spl
+index=windows EventCode=4625
+```
+
+---
+
+## 2. Connexions réussies
+
+```spl
+index=windows EventCode=4624
+```
+
+---
+
+## 3. Top utilisateurs en échec
+
+```spl
+index=windows EventCode=4625
+| stats count by user
+| sort -count
+```
+
+---
+
+## 4. Top IP source
+
+```spl
+index=windows EventCode=4625
+| stats count by src_ip
+```
+
+---
+
+## 5. Brute force
+
+```spl
+index=windows EventCode=4625
+| stats count by src_ip user
+| where count > 20
+```
+
+---
+
+## 6. Password Spray
+
+```spl
+index=windows EventCode=4625
+| stats dc(user) as users by src_ip
+| where users > 10
+```
+
+---
+
+## 7. Création utilisateur
+
+```spl
+index=windows EventCode=4720
+```
+
+---
+
+## 8. Suppression utilisateur
+
+```spl
+index=windows EventCode=4726
+```
+
+---
+
+## 9. Ajout Admin Domain
+
+```spl
+index=windows EventCode=4728
+```
+
+---
+
+## 10. Comptes désactivés
+
+```spl
+index=windows EventCode=4725
+```
+
+---
+
+## 11. Powershell
+
+```spl
+index=windows powershell.exe
+```
+
+---
+
+## 12. Encoded Command
+
+```spl
+index=windows "-enc"
+```
+
+---
+
+## 13. Base64 PowerShell
+
+```spl
+index=windows
+| regex CommandLine=".*[A-Za-z0-9+/]{50,}.*"
+```
+
+---
+
+## 14. PsExec
+
+```spl
+index=windows psexec
+```
+
+---
+
+## 15. WMI Execution
+
+```spl
+index=windows wmiprvse.exe
+```
+
+---
+
+## 16. Rundll32
+
+```spl
+index=windows rundll32.exe
+```
+
+---
+
+## 17. Regsvr32
+
+```spl
+index=windows regsvr32.exe
+```
+
+---
+
+## 18. Certutil
+
+```spl
+index=windows certutil.exe
+```
+
+---
+
+## 19. Bitsadmin
+
+```spl
+index=windows bitsadmin.exe
+```
+
+---
+
+## 20. Mshta
+
+```spl
+index=windows mshta.exe
+```
+
+---
+
+# CrowdStrike Hunting
+
+## 21
+
+```spl
+index=crowdstrike
+| top DetectName
+```
+
+---
+
+## 22
+
+```spl
+index=crowdstrike Severity=High
+```
+
+---
+
+## 23
+
+```spl
+index=crowdstrike Tactic=CredentialAccess
+```
+
+---
+
+## 24
+
+```spl
+index=crowdstrike Technique=T1003
+```
+
+---
+
+## 25
+
+```spl
+index=crowdstrike
+| stats count by HostName
+```
+
+---
+
+# Process Hunting
+
+## 26
+
+```spl
+index=windows EventCode=4688
+```
+
+---
+
+## 27
+
+```spl
+index=windows EventCode=4688 process_name=cmd.exe
+```
+
+---
+
+## 28
+
+```spl
+index=windows EventCode=4688 process_name=powershell.exe
+```
+
+---
+
+## 29
+
+```spl
+index=windows EventCode=4688 parent_process_name=winword.exe
+```
+
+---
+
+## 30
+
+```spl
+index=windows EventCode=4688 parent_process_name=excel.exe
+```
+
+---
+
+# Réseau
+
+## 31
+
+```spl
+index=firewall action=deny
+```
+
+---
+
+## 32
+
+```spl
+index=firewall
+| stats count by src_ip
+```
+
+---
+
+## 33
+
+```spl
+index=firewall
+| stats count by dest_port
+```
+
+---
+
+## 34
+
+```spl
+index=firewall dest_port=3389
+```
+
+---
+
+## 35
+
+```spl
+index=firewall dest_port=22
+```
+
+---
+
+## 36
+
+```spl
+index=firewall action=allow
+```
+
+---
+
+# DNS Hunting
+
+## 37
+
+```spl
+index=dns
+| stats count by query
+```
+
+---
+
+## 38
+
+```spl
+index=dns
+| where len(query)>40
+```
+
+---
+
+## 39
+
+```spl
+index=dns
+| stats dc(query) by src_ip
+```
+
+---
+
+## 40
+
+```spl
+index=dns
+| regex query=".*[A-Za-z0-9]{40,}.*"
+```
+
+---
+
+# Détection avancée
+
+## 41
+
+Connexion puis privilèges
+
+```spl
+(index=windows EventCode=4624 OR EventCode=4672)
+| transaction user maxspan=5m
+```
+
+---
+
+## 42
+
+PowerShell après login
+
+```spl
+(index=windows EventCode=4624 OR process_name=powershell.exe)
+| transaction user maxspan=10m
+```
+
+---
+
+## 43
+
+Office → PowerShell
+
+```spl
+index=windows
+(parent_process=winword.exe OR parent_process=excel.exe)
+process_name=powershell.exe
+```
+
+---
+
+## 44
+
+Office → CMD
+
+```spl
+index=windows
+(parent_process=winword.exe OR parent_process=excel.exe)
+process_name=cmd.exe
+```
+
+---
+
+## 45
+
+Office → LOLBIN
+
+```spl
+index=windows
+(parent_process=winword.exe OR parent_process=excel.exe)
+(process_name=mshta.exe OR process_name=rundll32.exe)
+```
+
+---
+
+## 46
+
+Téléchargement suspect
+
+```spl
+index=windows
+(process_name=certutil.exe OR process_name=bitsadmin.exe)
+```
+
+---
+
+## 47
+
+Exécution depuis Temp
+
+```spl
+index=windows
+CommandLine="*\\Temp\\*"
+```
+
+---
+
+## 48
+
+Exécution depuis AppData
+
+```spl
+index=windows
+CommandLine="*\\AppData\\*"
+```
+
+---
+
+## 49
+
+Mouvement latéral
+
+```spl
+index=windows EventCode=4624 LogonType=3
+```
+
+---
+
+## 50
+
+Détection d'activité anormale
+
+```spl
+index=*
+| stats count by host
+| eventstats avg(count) as avg
+| where count > avg*5
+```
