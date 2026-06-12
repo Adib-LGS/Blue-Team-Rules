@@ -1,0 +1,8 @@
+Cool regex :
+Extract log sources : .*Log source '([^']*)'.*
+Extract subjects on MailItemAccessed events : "Subject":\s*"([^"]*)"
+TRB Misc App Extract IP : .*srcIpAddr:([^']*),
+WLC Extract : .*failures for N/A ([^']*)
+Bruteforce Non Interactive Misc App : .*from\s+([^ ]+)\s+on\s+server.*
+ 
+AE URL : *.*BZEM6541([^']*).OUT.*
