@@ -339,6 +339,75 @@ Détection des exécutions de `node` ou `node.exe` — particulièrement utile l
 
 ***
 
+## 11. Build a 30-day baseline of RMM tool executions grouped by process tree and RMM tag
+
+**Contexte :**
+Process trees that appear >100 times are considered established/legitimate.
+Insect Grand Parent Process
+
+``` 
+
+// Build a 30-day baseline of RMM tool executions grouped by process tree and RMM tag.
+// Process trees that appear >100 times are considered established/legitimate.
+defineTable(
+  query={
+    #repo="base_sensor" #event_simpleName="ProcessRollup2" event_platform="Win"
+    // Extract RMM classification tag from CrowdStrike Tags field
+    | Tags=/\b(?<_rmm_tag>2133095507[5-6][0-9]{4})\b/
+    // Construct a three-level process tree string: GrandParent >> Parent >> Child
+    | _process_tree := format(format="%s >> %s >> %s", field=[GrandParentBaseFileName, ParentBaseFileName, FileName])
+    | groupBy([_rmm_tag, _process_tree], function=[
+        _baseline_unique_hosts := count(field=aid, distinct=true),
+        _executions := count()
+      ])
+    // TUNING: Decrease the threshold to suppress more process trees as established/legitimate (fewer alerts, fewer FPs).
+    // Increase the threshold to cast a wider net at the cost of more noise.
+    | _executions > 100
+  },
+  start=30d, end=70m, name="baseline_rmm_process_tree",
+  include=[_rmm_tag, _process_tree, _baseline_unique_hosts]
+)
+ 
+// Detect RMM tool executions in the current window
+| #repo="base_sensor" #event_simpleName="ProcessRollup2" event_platform="Win"
+| Tags=/\b(?<_rmm_tag>2133095507[5-6][0-9]{4})\b/
+| _process_tree := format(format="%s >> %s >> %s", field=[GrandParentBaseFileName, ParentBaseFileName, FileName])
+ 
+// Left join against baseline. Unmatched RMM process trees get sentinel value "-" for _baseline_unique_hosts.
+// Novel chains (no baseline match) and weakly established chains (<=3 hosts) are alerted on.
+// Well-established chains (_baseline_unique_hosts > 3) are suppressed by the case block.
+| match(table="baseline_rmm_process_tree", field=[_rmm_tag, _process_tree], strict=false)
+| default(value="-", field=[_baseline_unique_hosts])
+| case {
+    _baseline_unique_hosts="-" 
+      | _detection_reason := "RMM process tree not in baseline at all" ;
+    _baseline_unique_hosts<=3 
+      | _detection_reason := "RMM process tree in baseline but with weak host coverage"
+}
+ 
+// TUNING: Exclude specific RMM process trees confirmed as legitimate in your environment.
+// Most commonly needed for weakly established chains generating recurring false positives.
+// | _process_tree =~ NOT in(values=["null >> SupportAssistAgent.exe >> SupportAssistHardwareDiags.exe"])
+ 
+// Enrich with the human-readable RMM application name
+| match(file="falcon/ngsiem-content/application_classification_tags.csv", field=[_rmm_tag], column=[TagValue], include=[Name])
+| rename(field="Name", as="RMMAppName")
+ 
+// Aggregate results by RMM app and process tree to reduce alert volume
+| groupBy([RMMAppName, _process_tree, _detection_reason], function=[
+    _unique_hosts := count(field=aid, distinct=true),
+    _unique_users := count(field=UserName, distinct=true),
+    _executions   := count(),
+    collect([OriginalFilename, CommandLine, SHA256HashData])
+  ])
+ 
+// TUNING: Limit to low-prevalence activity. Increase to surface wider campaigns.
+| _unique_hosts <= 20
+
+```
+
+***
+
 ## License
 
 This repository contains anonymized SOC detection rules and is safe for public distribution.
