@@ -1,19 +1,585 @@
-Entra ID Role Privilege Escalation
- 
+# SOC Investigation & Threat Hunting Query Library
+
+> Collection de requêtes KQL anonymisées destinées aux activités de surveillance, de Threat Hunting, de détection, de réponse aux incidents et d’investigation dans Microsoft Sentinel, Microsoft Defender XDR et Microsoft Entra ID.
+>
+> Toutes les informations sensibles (IP, utilisateurs, hôtes, identifiants de session et tenants) ont été remplacées par des variables génériques afin de préserver la confidentialité tout en conservant la logique d'analyse.
+
+---
+
+# Table des matières
+
+- [Entra ID - Escalade de privilèges](#entra-id---escalade-de-privill](#réseau--re & Télémétrie](#invent Hunting](#[Comptes & Authentification- [Microsoft 365 & Enra-id
+- [alertes--corrélation
+- #processus--exécution
+- #variables-à-remplacer
+- [Couverture MITRE ATT&CK](#couverture ID - Escalade de privilèges
+
+## Détection d'ajout à un rôle privilégié
+
+### Objectif
+
+Détecter l'ajout d'un utilisateur à un rôle privilégié Microsoft Entra ID, que ce soit via Privileged Identity Management (PIM) ou directement dans Azure AD.
+
+### Cas d'usage
+
+- Escalade de privilèges.
+- Détection d'abus de comptes administrateurs.
+- Surveillance des rôles critiques.
+- Validation des changements administratifs.
+
+### Requête
+
+```kusto
 AuditLogs
 | where LoggedByService == "Core Directory"
-| where OperationName in ("Add member to role", "Add eligible member to role", "Add member to role outside of PIM")
+| where OperationName in (
+    "Add member to role",
+    "Add eligible member to role",
+    "Add member to role outside of PIM"
+)
 | extend TargetUser = tostring(TargetResources[0].userPrincipalName)
 | mv-apply Property = TargetResources[0].modifiedProperties on (
     where Property.displayName == "Role.DisplayName"
     | extend RoleName = tostring(Property.newValue)
 )
-| extend InitiatedBy = iif(isnotempty(InitiatedBy.user.userPrincipalName), tostring(InitiatedBy.user.userPrincipalName), tostring(InitiatedBy.app.displayName))
+| extend InitiatedBy =
+    iif(
+        isnotempty(InitiatedBy.user.userPrincipalName),
+        tostring(InitiatedBy.user.userPrincipalName),
+        tostring(InitiatedBy.app.displayName)
+    )
 | where RoleName has_any (
-     "Global Administrator", "AI Administrator", "Application Administrator", "Authentication Administrator",
-     "Cloud Application Administrator", "Cloud Device Administrator", "Conditional Access Administrator",
-     "Helpdesk Administrator", "Hybrid Identity Administrator", "Intune Administrator", "Password Administrator",
-     "Privileged Authentication Administrator", "Privileged Role Administrator", "Security Administrator",
-     "Security Operator", "User Administrator"
+    "Global Administrator",
+    "AI Administrator",
+    "Application Administrator",
+    "Authentication Administrator",
+    "Cloud Application Administrator",
+    "Cloud Device Administrator",
+    "Conditional Access Administrator",
+    "Helpdesk Administrator",
+    "Hybrid Identity Administrator",
+    "Intune Administrator",
+    "Password Administrator",
+    "Privileged Authentication Administrator",
+    "Privileged Role Administrator",
+    "Security Administrator",
+    "Security Operator",
+    "User Administrator"
 )
-| project TimeGenerated, OperationName, RoleName, TargetUser, InitiatedBy, Result, AADTenantId
+| project
+    TimeGenerated,
+    OperationName,
+    RoleName,
+    TargetUser,
+    InitiatedBy,
+    Result,
+    AADTenantId
+```
+
+### Contexte
+
+Cette règle permet d'identifier rapidement les attributions de privilèges élevées pouvant mener à une compromission complète du tenant. Un ajout inattendu à un rôle administratif doit toujours faire l'objet d'une validation.
+
+---
+
+# Web & IIS
+
+## Recherche d'activité IIS provenant d'une adresse IP spécifique
+
+### Objectif
+
+Identifier toutes les requêtes web provenant d'une adresse IP suspecte.
+
+### Requête
+
+```kusto
+W3CIISLog
+| where cIP == "<IP_EXTERNE>"
+```
+
+### Contexte
+
+- Validation d'un IOC.
+- Investigation d'une tentative d'exploitation.
+- Confirmation d'accès à un serveur Web.
+
+---
+
+## Analyse détaillée d'adresses IP sur IIS
+
+### Objectif
+
+Analyser le comportement HTTP d'un ensemble d'adresses IP.
+
+### Requête
+
+```kusto
+W3CIISLog
+| where cIP in (
+    "<IP_1>",
+    "<IP_2>",
+    "<IP_3>"
+)
+| summarize
+    NombreRequetes = count(),
+    NombreRequetesAbouties = countif(scStatus=="200"),
+    NombreRequetesNonAbouties = countif(scStatus!="200"),
+    NombreStatus = dcount(scStatus),
+    ListeStatut = make_set(scStatus),
+    NombreUserAgents = dcount(csUserAgent),
+    NombrePaths = dcount(csUriStem),
+    ListeUserAgents = make_set(csUserAgent),
+    ListePath200 = make_set_if(csUriStem, scStatus=="200"),
+    ListeRequetes200 = make_set_if(
+        strcat(csMethod, " ", csUriStem, "", csUriQuery),
+        scStatus=="200"
+    ),
+    Destinations = make_set(Computer)
+by cIP
+| where NombreRequetes >= 100
+```
+
+### Contexte
+
+- Détection de scans.
+- Détection d'automatisation.
+- Validation d'exploitation potentielle.
+- Analyse des User-Agent.
+
+---
+
+# Réseau & Firewall
+
+## Identification des systèmes ciblés par une adresse IP
+
+### Objectif
+
+Déterminer les destinations contactées par une source réseau spécifique.
+
+### Requête
+
+```kusto
+CommonSecurityLog
+| where SourceIP == "<IP_EXTERNE>"
+| summarize count() by DestinationIP
+```
+
+### Contexte
+
+- Analyse de propagation.
+- Évaluation de l'impact.
+- Priorisation des actifs.
+
+---
+
+## Recherche d'une adresse IP dans Syslog
+
+### Objectif
+
+Identifier les événements associés à une adresse IP particulière.
+
+### Requête
+
+```kusto
+Syslog
+| search "<IP_RECHERCHEE>"
+| where SyslogMessage !contains "block"
+```
+
+### Contexte
+
+- Validation de connexions réussies.
+- Recherche d'IOC.
+- Surveillance réseau.
+
+---
+
+## Attribution d'une adresse IP à un actif
+
+### Objectif
+
+Identifier le dernier équipement associé à une adresse IP.
+
+### Requête
+
+```kusto
+Heartbeat
+| search "<ADRESSE_IP>"
+| summarize arg_max(TimeGenerated, *)
+```
+
+### Contexte
+
+- Corrélation*DHCP.
+- Investigation réseau.
+- At*ribution d'actifs.
+
+---
+
+# Inventa*re & Télémétrie
+
+## Inventaire des*équipements
+
+### Objectif
+
+Lister *es terminaux d'un environnement.
+
+*## Requête
+
+```kusto
+DeviceInfo
+| *here DeviceName startswith "<PREFI*E_ORGANISATION>"
+| limit 1000
+```
+*---
+
+## Validation de la collecte *yslog
+
+### Objectif
+
+Vérifier la p*ésence de télémétrie Syslog.
+
+### *equête
+
+```kusto
+Syslog
+| where Co*puter startswith "<PREFIXE_ORGANIS*TION>"
+| limit 10
+```
+
+---
+
+## Val*dation des Heartbeats
+
+### Objecti*
+
+Contrôler la disponibilité des a*tifs.
+
+### Requête
+
+```kusto
+Heart*eat
+| where Computer startswith "<*REFIXE_ORGANISATION>"
+```
+
+---
+
+# *hreat Hunting
+
+## Recherche global* d'un indicateur
+
+### Objectif
+
+Dé*erminer dans quelles tables un art*fact est présent.
+
+### Requête
+
+``*kusto
+search "<MOT_CLE>"
+| summari*e count() by $table
+```
+
+### Conte*te
+
+- IOC Hunting.
+- Pivot d'inves*igation.
+- Validation de compromis*ion.
+
+---
+
+## Inventaire des exécu*ables tiers
+
+### Objectif
+
+Identif*er les exécutables non Microsoft p*ésents dans l'environnement.
+
+### *equête
+
+```kusto
+DeviceProcessEven*s
+| where ProcessVersionInfoCompan*Name != "Microsoft Corporation"
+| *here DeviceName startswith "<PREFI*E_ORGANISATION>"
+| summarize by
+  * ProcessVersionInfoCompanyName,
+  * ProcessVersionInfoProductName,
+  * ProcessVersionInfoInternalFileNam*,
+    ProcessVersionInfoProductVer*ion,
+    SHA256
+| limit 1000
+```
+
+*## Contexte
+
+- Inventaire logiciel*
+- Détection d'outils suspects.
+- *écouverte de logiciels non approuv*s.
+
+---
+
+## Recherche d'activité r*cente sur un hôte
+
+### Objectif
+
+I*entifier les événements récents su* un système particulier.
+
+### Requ*te
+
+```kusto
+DeviceProcessEvents
+|*where TimeGenerated >= ago(12h)
+| *earch "<NOM_HOTE>"
+```
+
+### Contex*e
+
+- Validation d'une alerte.
+- In*estigation rapide.
+- Threat Huntin* ciblé.
+
+---
+
+# Comptes & Authenti*ication
+
+## Analyse d'activité d'u* groupe de comptes
+
+### Objectif
+
+*esurer les événements associés à p*usieurs comptes utilisateurs.
+
+###*Requête
+
+```kusto
+SecurityEvent
+| *here Account in~ (
+    "<COMPTE_1>*,
+    "<COMPTE_2>",
+    "<COMPTE_3*"
+)
+| summarize count() by EventID* AccountName
+```
+
+### Contexte
+
+- *nvestigation de comptes compromis.*- Validation des activités adminis*ratives.
+- Analyse comportementale*
+
+---
+
+## Détection des échecs d'a*thentification Windows
+
+### Object*f
+
+Identifier les tentatives de co*nexion échouées.
+
+### Requête
+
+```*usto
+SecurityEvent
+| where EventID*== 4625
+```
+
+### Contexte
+
+- Détec*ion de brute force.
+- Détection de*password spraying.
+- Surveillance *es accès.
+
+---
+
+# Microsoft 365 & *ntra ID
+
+## Analyse des connexions*interactives
+
+### Objectif
+
+Examin*r les connexions Microsoft Entra I*.
+
+### Requête
+
+```kusto
+SigninLog*
+| where UserPrincipalName =~ "<UT*LISATEUR>"
+```
+
+### Contexte
+
+- An*lyse de compromission.
+- Validatio* MFA.
+- Vérification géographique.*
+---
+
+## Analyse des authentificat*ons non interactives
+
+### Objectif*
+Examiner les connexions applicati*es et OAuth.
+
+### Requête
+
+```kust*
+AADNonInteractiveUserSignInLogs
+|*where UserPrincipalName =~ "<UTILI*ATEUR>"
+```
+
+### Contexte
+
+- Inves*igation OAuth.
+- Détection d'abus *e jetons.
+- Validation des applica*ions connectées.
+
+---
+
+## Investig*tion détaillée d'une session
+
+### *bjectif
+
+Reconstruire la chronolog*e d'une session.
+
+### Requête
+
+```*usto
+AADNonInteractiveUserSignInLo*s
+| where TimeGenerated >= ago(90d*
+| where SessionId == "<SESSION_ID*"
+| summarize by
+    TimeGenerated*
+    Location,
+    IPAddress,
+    *esultSignature
+| sort by TimeGener*ted asc
+```
+
+### Contexte
+
+- Analy*e chronologique.
+- Corrélation des*accès.
+- Investigation approfondie*
+
+---
+
+## Recherche d'activité Mic*osoft 365
+
+### Objectif
+
+Identifie* les actions réalisées à partir d'*ne session.
+
+### Requête
+
+```kusto*OfficeActivity
+| search "<SESSION_*D>"
+```
+
+### Contexte
+
+- Analyse p*st-authentification.
+- Validation *es actions utilisateur.
+- Corrélat*on Entra ID.
+
+---
+
+# Alertes & Cor*élation
+
+## Vue temporelle des ale*tes de sécurité
+
+### Objectif
+
+Mes*rer le volume d'alertes dans le te*ps.
+
+### Requête
+
+```kusto
+Securit*Alert
+| summarize count() by bin(T*meGenerated, 10m)
+```
+
+### Context*
+
+- Détection de pics d'activité.
+* Analyse de campagne d'attaque.
+- *upervision SOC.
+
+---
+
+# Processus * Exécution
+
+## Vérification de l'e*écution d'un processus
+
+### Object*f
+
+Valider qu'un processus spécifi*ue a été exécuté.
+
+### Requête
+
+``*kusto
+SecurityEvent
+| search "<NOM*HOTE>"
+| where EventID == 4688
+| w*ere NewProcessName == "<CHEMIN_PRO*ESSUS>"
+```
+
+### Contexte
+
+- Valid*tion d'outils administratifs.
+- In*estigation EDR.
+- Recherche de per*istance.
+
+---
+
+# Variables à rempl*cer
+
+| Variable | Description |
+|-*---------|-------------|
+| `<IP_EX*ERNE>` | Adresse IP source à inves*iguer |
+| `<IP_1> ... <IP_N>` | En*emble d'adresses IP suspectes |
+| *<ADRESSE_IP>` | Adresse IP à attri*uer |
+| `<UTILISATEUR>` | Utilisat*ur ou UPN |
+| `<SESSION_ID>` | Ide*tifiant de session Entra ID |
+| `<*OM_HOTE>` | Nom d'équipement |
+| `*COMPTE_X>` | Compte utilisateur Wi*dows |
+| `<MOT_CLE>` | IOC, domain*, hash ou artefact |
+| `<CHEMIN_PR*CESSUS>` | Chemin complet d'un exé*utable |
+| `<PREFIXE_ORGANISATION>* | Préfixe des équipements |
+
+---
+*# Couverture MITRE ATT&CK
+
+| Techn*que | Description |
+|------------|*-----------|
+| T1078 | Valid Accou*ts |
+| T1098 | Account Manipulatio* |
+| T1110 | Brute Force |
+| T1046*| Network Service Discovery |
+| T1*57 | Process Discovery |
+| T1059 |*Command and Scripting Interpreter *
+| T1071 | Application Layer Proto*ol |
+| T1087 | Account Discovery |*| T1105 | Ingress Tool Transfer |
+* T1190 | Exploit Public-Facing App*ication |
+| T1484.001 | Domain or *enant Policy Modification |
+| T107*.004 | Cloud Accounts |
+
+---
+
+# Ca* d'usage couverts
+
+Cette bibliothè*ue peut être utilisée pour :
+
+- Th*eat Hunting.
+- Investigation d'IOC*
+- Analyse de compromission de com*te.
+- Validation de mouvements lat*raux.
+- Détection de scans réseau.*- Analyse de trafic IIS.
+- Investi*ation d'accès Microsoft 365.
+- Ana*yse d'authentifications Entra ID.
+* Détection d'escalade de privilège*.
+- Attribution d'actifs.
+- Invest*gation EDR.
+- Surveillance SOC.
+- *éponse aux incidents.
+
+---
+
+# Lice*ce
+
+Utilisation interne SOC / Blue*Team*/ Threat Hunting.
+
+Adapter les tab*es, champs et connecteurs selon l'*nvironnement Microsoft Sentinel ou Microsoft Defender XDR utilisé.
+````*
